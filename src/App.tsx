@@ -1,12 +1,14 @@
 import React, { useState, useEffect } from 'react';
 import { db } from './db/localDatabase';
-import { Seat, PaymentTransaction } from './types';
+import { Seat, PaymentTransaction, Role } from './types';
 import { AppShell } from './components/layout/AppShell';
 import { DevSimulatorBar } from './components/common/DevSimulatorBar';
 import { ReceiptModal } from './components/common/ReceiptModal';
 import { GlobalSearchModal } from './components/common/GlobalSearchModal';
 import { SeatDrawer } from './components/common/SeatDrawer';
 import { QRScannerModal } from './components/common/QRScannerModal';
+import { isScreenPermitted, ROLE_META } from './utils/rolePermissions';
+import { ShieldAlert, Database } from 'lucide-react';
 
 // Screens
 import { DashboardScreen } from './components/screens/DashboardScreen';
@@ -50,11 +52,101 @@ import {
   DeviceActivationScreen,
   LocalDatabaseInspectorScreen,
 } from './components/screens/ActivationAndDbInspector';
+import { OnboardingLandingScreen } from './components/screens/OnboardingLandingScreen';
+import { OwnerOnboardingScreen } from './components/screens/OwnerOnboardingScreen';
+import { RoleOnboardingScreen } from './components/screens/RoleOnboardingScreen';
+import { StaffRolesScreen } from './components/screens/StaffRolesScreen';
+import { MembershipPlansScreen } from './components/screens/MembershipPlansScreen';
+import { SupabaseDbManagementScreen } from './components/screens/SupabaseDbManagementScreen';
+
+import { LoginUnlockScreen } from './components/screens/LoginUnlockScreen';
+
+const OAuthCallbackHandler: React.FC = () => {
+  const [status, setStatus] = useState('Completing Supabase Authorization...');
+  const [isSuccess, setIsSuccess] = useState(false);
+
+  useEffect(() => {
+    const params = new URLSearchParams(window.location.search);
+    const code = params.get('code');
+    const state = params.get('state');
+
+    if (!code || !state) {
+      setStatus('No authorization code or state found in callback URL.');
+      return;
+    }
+
+    fetch('/api/supabase/oauth/callback', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        code,
+        state,
+        redirectUri: window.location.origin + '/oauth/callback',
+      }),
+    })
+      .then(async res => {
+        const text = await res.text();
+        try {
+          return JSON.parse(text);
+        } catch {
+          throw new Error('OAuth server endpoint is only available during local web development. Please use the Personal Access Token (PAT) connection.');
+        }
+      })
+      .then(data => {
+        if (data.success) {
+          setIsSuccess(true);
+          setStatus('Supabase authorized successfully! Closing popup...');
+          if (window.opener) {
+            window.opener.postMessage({ type: 'SUPABASE_OAUTH_SUCCESS', data }, '*');
+          }
+          setTimeout(() => window.close(), 1200);
+        } else {
+          setStatus(`Authorization error: ${data.error || 'Exchange failed'}`);
+        }
+      })
+      .catch(err => setStatus(`Connection note: ${err.message}`));
+  }, []);
+
+  return (
+    <div className="min-h-screen flex items-center justify-center bg-slate-950 text-white p-6">
+      <div className="max-w-sm w-full p-6 rounded-3xl bg-slate-900 border border-slate-800 text-center space-y-4 shadow-2xl">
+        <div className="w-14 h-14 rounded-2xl bg-emerald-500/15 text-emerald-400 flex items-center justify-center mx-auto">
+          <Database className={`w-7 h-7 ${isSuccess ? '' : 'animate-pulse'}`} />
+        </div>
+        <h2 className="text-base font-bold">Supabase Cloud Connection</h2>
+        <p className="text-xs text-slate-400 leading-relaxed">{status}</p>
+      </div>
+    </div>
+  );
+};
 
 export function App() {
   const [, setTick] = useState(0);
-  const [currentScreen, setCurrentScreen] = useState('dashboard');
-  const [selectedStudentId, setSelectedStudentId] = useState('STU-1024');
+  const [sessionUnlocked, setSessionUnlocked] = useState<boolean>(() => {
+    if (typeof window !== 'undefined') {
+      return sessionStorage.getItem('lib_mgmt_session_unlocked') === 'true';
+    }
+    return false;
+  });
+
+  const [currentScreen, setCurrentScreen] = useState<string>(() => {
+    if (typeof window !== 'undefined') {
+      const saved = sessionStorage.getItem('lib_mgmt_active_screen') || localStorage.getItem('lib_mgmt_active_screen');
+      if (saved) {
+        return saved;
+      }
+    }
+    return 'dashboard';
+  });
+  const isOnboarding = currentScreen.startsWith('onboarding-');
+
+  const [selectedStudentId, setSelectedStudentId] = useState<string>(() => {
+    if (typeof window !== 'undefined') {
+      const savedStudent = sessionStorage.getItem('lib_mgmt_selected_student') || localStorage.getItem('lib_mgmt_selected_student');
+      if (savedStudent) return savedStudent;
+    }
+    return '';
+  });
   const [selectedSeat, setSelectedSeat] = useState<Seat | null>(null);
   const [activeReceiptTx, setActiveReceiptTx] = useState<PaymentTransaction | null>(null);
   const [isQRScannerOpen, setIsQRScannerOpen] = useState(false);
@@ -68,7 +160,7 @@ export function App() {
     return unsub;
   }, []);
 
-  // Global keyboard shortcuts (Ctrl+K for search)
+  // Global keyboard shortcuts (Ctrl+K for search) - called unconditionally at top of component
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
       if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'k') {
@@ -80,15 +172,151 @@ export function App() {
     return () => window.removeEventListener('keydown', handleKeyDown);
   }, []);
 
+  if (typeof window !== 'undefined' && window.location.pathname === '/oauth/callback') {
+    return <OAuthCallbackHandler />;
+  }
+
+  // Strict Signature Verification Gate: Never allow dashboard access if unbound
+  if (db.bindingState === 'UNBOUND' || !db.boundCredentialEnvelope) {
+    if (currentScreen === 'onboarding-owner') {
+      return (
+        <OwnerOnboardingScreen
+          onBack={() => setCurrentScreen('onboarding-landing')}
+          onSuccess={() => {
+            setSessionUnlocked(true);
+            try { sessionStorage.setItem('lib_mgmt_session_unlocked', 'true'); } catch (e) {}
+            setCurrentScreen('dashboard');
+          }}
+        />
+      );
+    }
+    if (currentScreen === 'onboarding-role') {
+      return (
+        <RoleOnboardingScreen
+          onBack={() => setCurrentScreen('onboarding-landing')}
+          onSuccess={() => {
+            setSessionUnlocked(true);
+            try { sessionStorage.setItem('lib_mgmt_session_unlocked', 'true'); } catch (e) {}
+            setCurrentScreen('dashboard');
+          }}
+        />
+      );
+    }
+    return (
+      <OnboardingLandingScreen
+        onSelectOwner={() => setCurrentScreen('onboarding-owner')}
+        onSelectRole={() => setCurrentScreen('onboarding-role')}
+      />
+    );
+  }
+
+  // Session Password Protection Gate: Ask password on subsequent desktop launches
+  if (!sessionUnlocked) {
+    return (
+      <LoginUnlockScreen
+        onUnlock={() => {
+          setSessionUnlocked(true);
+          try { sessionStorage.setItem('lib_mgmt_session_unlocked', 'true'); } catch (e) {}
+          setCurrentScreen('dashboard');
+        }}
+        onUnbind={() => {
+          setSessionUnlocked(false);
+          try { sessionStorage.removeItem('lib_mgmt_session_unlocked'); } catch (e) {}
+          setCurrentScreen('onboarding-landing');
+        }}
+      />
+    );
+  }
+
   const handleNavigate = (screenId: string, param?: any) => {
-    if (param && screenId === 'student-profile') {
+    if (param && (screenId === 'student-profile' || screenId === 'student-add-edit')) {
       setSelectedStudentId(param);
+      try {
+        if (typeof window !== 'undefined') {
+          sessionStorage.setItem('lib_mgmt_selected_student', param);
+          localStorage.setItem('lib_mgmt_selected_student', param);
+        }
+      } catch (e) {}
     }
     setCurrentScreen(screenId);
+    try {
+      if (typeof window !== 'undefined') {
+        sessionStorage.setItem('lib_mgmt_active_screen', screenId);
+        localStorage.setItem('lib_mgmt_active_screen', screenId);
+      }
+    } catch (e) {}
   };
 
   const renderScreen = () => {
+    const currentRole: Role = (db.currentUser?.role as Role) || (db.boundRole as Role) || 'Owner';
+    const customPermissions = db.boundCredentialEnvelope?.permissions || db.currentUser?.permissions || [];
+
+    // Strict Security Guard: Block unauthorized direct screen routing
+    if (!isScreenPermitted(currentScreen, currentRole, customPermissions)) {
+      const roleMeta = ROLE_META[currentRole] || ROLE_META['Viewer'];
+      return (
+        <div className="max-w-xl mx-auto my-12 p-8 rounded-3xl bg-white/90 dark:bg-slate-900/90 border border-rose-200 dark:border-rose-900/60 shadow-2xl text-center space-y-4 backdrop-blur-md animate-in fade-in zoom-in-95">
+          <div className="w-16 h-16 mx-auto rounded-3xl bg-rose-50 dark:bg-rose-500/10 text-rose-600 dark:text-rose-400 flex items-center justify-center">
+            <ShieldAlert className="w-8 h-8" />
+          </div>
+          <div className="space-y-1">
+            <h2 className="text-xl font-extrabold text-slate-900 dark:text-white">
+              Access Restricted: Role Permission Required
+            </h2>
+            <p className="text-xs text-slate-500 dark:text-slate-400">
+              Your active session is authorized under <span className={`px-2 py-0.5 rounded-md font-mono text-[10px] font-bold border ${roleMeta.badgeBg} ${roleMeta.badgeText} ${roleMeta.badgeBorder}`}>{roleMeta.title}</span>.
+            </p>
+          </div>
+          <div className="p-4 rounded-2xl bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-800 text-xs text-slate-600 dark:text-slate-400 text-left space-y-2">
+            <div className="flex items-center justify-between">
+              <span className="font-semibold text-slate-800 dark:text-slate-200">Requested Screen:</span>
+              <span className="font-mono text-cyan-600 dark:text-cyan-400">{currentScreen}</span>
+            </div>
+            <div className="flex items-center justify-between">
+              <span className="font-semibold text-slate-800 dark:text-slate-200">Enforcement Mode:</span>
+              <span className="text-rose-600 dark:text-rose-400 font-semibold">Strict Role-Based Access Control</span>
+            </div>
+            <p className="text-[11px] text-slate-500 dark:text-slate-400 pt-1 border-t border-slate-200 dark:border-slate-800">
+              This module requires elevated permissions. Please ask your Library Owner to issue an updated digital signature token if access is required.
+            </p>
+          </div>
+          <div className="pt-2 flex justify-center">
+            <button
+              onClick={() => handleNavigate('dashboard')}
+              className="px-5 py-2.5 rounded-xl bg-gradient-to-r from-blue-600 to-indigo-600 text-white font-bold text-xs shadow-md shadow-blue-500/20 hover:from-blue-500 hover:to-indigo-500 transition cursor-pointer"
+            >
+              Return to Authorized Dashboard
+            </button>
+          </div>
+        </div>
+      );
+    }
+
     switch (currentScreen) {
+      case 'onboarding-landing':
+        return (
+          <OnboardingLandingScreen
+            onSelectOwner={() => handleNavigate('onboarding-owner')}
+            onSelectRole={() => handleNavigate('onboarding-role')}
+          />
+        );
+
+      case 'onboarding-owner':
+        return (
+          <OwnerOnboardingScreen
+            onBack={() => handleNavigate('onboarding-landing')}
+            onSuccess={() => handleNavigate('dashboard')}
+          />
+        );
+
+      case 'onboarding-role':
+        return (
+          <RoleOnboardingScreen
+            onBack={() => handleNavigate('onboarding-landing')}
+            onSuccess={() => handleNavigate('dashboard')}
+          />
+        );
+
       case 'dashboard':
         return (
           <DashboardScreen
@@ -118,10 +346,7 @@ export function App() {
       case 'students':
         return (
           <StudentsDirectoryScreen
-            onSelectStudent={id => {
-              setSelectedStudentId(id);
-              setCurrentScreen('student-profile');
-            }}
+            onSelectStudent={id => handleNavigate('student-profile', id)}
             onNavigate={handleNavigate}
           />
         );
@@ -156,7 +381,8 @@ export function App() {
 
       case 'memberships':
       case 'membership-plans':
-        return <SetupWizardScreen onNavigate={handleNavigate} />;
+      case 'plans':
+        return <MembershipPlansScreen onNavigate={handleNavigate} />;
 
       case 'attendance-live':
       case 'attendance-history':
@@ -272,7 +498,9 @@ export function App() {
 
       case 'staff':
       case 'staff-attendance':
-        return <StaffScreen />;
+      case 'staff-roles':
+      case 'roles':
+        return <StaffRolesScreen onNavigate={handleNavigate} />;
 
       case 'expenses':
       case 'income':
@@ -305,6 +533,11 @@ export function App() {
       case 'backup-center':
       case 'restore-center':
         return <BackupCenterScreen />;
+
+      case 'supabase-db-management':
+      case 'supabase-settings':
+      case 'supabase-cloud':
+        return <SupabaseDbManagementScreen onNavigate={handleNavigate} />;
 
       case 'general-settings':
       case 'operational-settings':
@@ -343,6 +576,7 @@ export function App() {
       currentScreen={currentScreen}
       onNavigate={handleNavigate}
       onOpenSearch={() => setIsSearchOpen(true)}
+      isOnboarding={isOnboarding}
     >
       {/* Dev Mode Offline Simulator Dock */}
       <DevSimulatorBar

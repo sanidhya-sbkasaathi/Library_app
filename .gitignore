@@ -12,6 +12,20 @@ dist
 dist-ssr
 *.local
 
+# Electron packaging & build artifacts
+release
+release/**
+win-unpacked
+*.exe
+*.zip
+*.blockmap
+
+# Local database files
+*.db
+*.db-wal
+*.db-shm
+*.db-journal
+
 # Editor directories and files
 .vscode/*
 !.vscode/extensions.json

@@ -1,4 +1,4 @@
-export type Role = 'Super Admin' | 'Owner' | 'Manager' | 'Receptionist' | 'Accountant' | 'Librarian' | 'Security';
+export type Role = 'Super Admin' | 'Owner' | 'Manager' | 'Receptionist' | 'Accountant' | 'Librarian' | 'Security' | 'Viewer';
 
 export type SeatStatus = 'AVAILABLE' | 'OCCUPIED' | 'RESERVED' | 'BLOCKED' | 'MAINTENANCE';
 
@@ -40,6 +40,9 @@ export interface User {
   pin: string;
   phone: string;
   status: 'Active' | 'Inactive';
+  permissions?: string[];
+  roleId?: string;
+  digitalSignature?: string;
 }
 
 export interface Room {
@@ -235,6 +238,25 @@ export interface Notice {
   pinned: boolean;
 }
 
+export interface RoleJoiningPayload {
+  libraryId: string;
+  orgName: string;
+  role: Role;
+  roleId: string;
+  assignedTo?: string;
+  mobile?: string;
+  email?: string;
+  shift?: string;
+  salary?: number;
+  permissions: string[];
+  issuedAt: string;
+  expiresAt: string;
+  nonce: string;
+  digitalSignature: string;
+  joinedAt?: string;
+  status: 'PENDING_INVITE' | 'ACTIVE_SIGNED' | 'REVOKED';
+}
+
 export interface StaffMember {
   id: string;
   associationId: string;
@@ -243,9 +265,13 @@ export interface StaffMember {
   mobile: string;
   email: string;
   salary: number;
-  shift: 'Morning (6 AM - 2 PM)' | 'Evening (2 PM - 10 PM)' | 'Full Day (8 AM - 8 PM)';
-  status: 'Active' | 'On Leave' | 'Inactive';
+  shift: string;
+  status: 'Active' | 'On Leave' | 'Inactive' | 'Pending Invitation';
   joiningDate: string;
+  roleId?: string;
+  digitalSignature?: string;
+  permissions?: string[];
+  signingPayload?: RoleJoiningPayload;
 }
 
 export interface Expense {
@@ -318,4 +344,34 @@ export interface DeviceInfo {
   lastSync: string;
   status: 'Online' | 'Offline' | 'Syncing';
   ip: string;
+}
+
+export interface Book {
+  id: string;
+  libraryId: string;
+  isbn?: string;
+  title: string;
+  author: string;
+  publisher?: string;
+  publicationYear?: number;
+  edition?: string;
+  category: string;
+  description?: string;
+  totalCopies: number;
+  availableCopies: number;
+  coverImageUrl?: string;
+  createdAt?: string;
+  updatedAt?: string;
+}
+
+export interface BookCopy {
+  id: string;
+  bookId: string;
+  barcode: string;
+  rfidTag?: string;
+  condition: string;
+  status: 'AVAILABLE' | 'ISSUED' | 'MAINTENANCE' | 'LOST';
+  rackLocation?: string;
+  createdAt?: string;
+  updatedAt?: string;
 }

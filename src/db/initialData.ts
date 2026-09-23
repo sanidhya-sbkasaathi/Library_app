@@ -286,6 +286,41 @@ export const generateInitialSeats = (): Seat[] => {
   return seats;
 };
 
+export const generateEmptySeats = (assocId: string = 'assoc-1'): Seat[] => {
+  const seats: Seat[] = [];
+  const rooms = [
+    { id: 'room-1', prefix: 'A', count: 50 },
+    { id: 'room-2', prefix: 'B', count: 50 },
+  ];
+
+  rooms.forEach((r) => {
+    for (let i = 1; i <= r.count; i++) {
+      const numStr = i < 10 ? `0${i}` : `${i}`;
+      const seatNo = `${r.prefix}${numStr}`;
+
+      seats.push({
+        id: `seat-${r.prefix.toLowerCase()}-${i}`,
+        associationId: assocId,
+        roomId: r.id,
+        seatNumber: seatNo,
+        row: r.prefix,
+        column: ((i - 1) % 10) + 1,
+        type: i % 4 === 0 ? 'Premium' : i % 5 === 0 ? 'Window View' : 'Standard',
+        hasCharging: true,
+        hasLamp: i % 2 === 0,
+        hasLocker: i % 3 === 0,
+        status: 'AVAILABLE',
+        studentId: undefined,
+        studentName: undefined,
+        studentMobile: undefined,
+        membershipEnd: undefined,
+      });
+    }
+  });
+
+  return seats;
+};
+
 export const initialStudents: Student[] = [
   {
     id: 'stu-1',
@@ -836,12 +871,13 @@ export const initialDevices: DeviceInfo[] = [
   { id: 'dev-3', associationId: 'assoc-1', deviceName: 'Owner Laptop', user: 'Director Office', lastActive: '45 mins ago', lastSync: '09:50 AM', status: 'Offline', ip: '192.168.1.105' },
 ];
 
-export const initialStaff: StaffMember[] = [
-  { id: 'stf-1', associationId: 'assoc-1', name: 'Rahul Sharma', role: 'Super Admin', mobile: '+91 98765 43210', email: 'rahul@lib.com', salary: 65000, shift: 'Full Day (8 AM - 8 PM)', status: 'Active', joiningDate: '2022-01-15' },
-  { id: 'stf-2', associationId: 'assoc-1', name: 'Pooja Verma', role: 'Manager', mobile: '+91 98765 43211', email: 'pooja@lib.com', salary: 38000, shift: 'Morning (6 AM - 2 PM)', status: 'Active', joiningDate: '2023-04-10' },
-  { id: 'stf-3', associationId: 'assoc-1', name: 'Amit Joshi', role: 'Receptionist', mobile: '+91 98765 43212', email: 'amit@lib.com', salary: 22000, shift: 'Evening (2 PM - 10 PM)', status: 'Active', joiningDate: '2024-02-01' },
-  { id: 'stf-4', associationId: 'assoc-1', name: 'Rajendra Meena', role: 'Security', mobile: '+91 98765 43213', email: 'security@lib.com', salary: 16000, shift: 'Full Day (8 AM - 8 PM)', status: 'Active', joiningDate: '2023-08-15' },
-  { id: 'stf-5', associationId: 'assoc-1', name: 'Sunita Devi', role: 'Librarian', mobile: '+91 98765 43214', email: 'sunita@lib.com', salary: 25000, shift: 'Morning (6 AM - 2 PM)', status: 'Active', joiningDate: '2023-11-20' },
+export const initialStaff: StaffMember[] = [];
+
+export const initialAttendance: AttendanceRecord[] = [
+  { id: 'att-1', associationId: 'assoc-1', studentId: 'STU-1024', studentName: 'Pooja Sharma', seatNumber: 'A12', roomName: 'Room A', date: '28 Apr 2025', checkIn: '08:30 AM', checkOut: undefined, durationMinutes: 180, status: 'Present' },
+  { id: 'att-2', associationId: 'assoc-1', studentId: 'STU-1025', studentName: 'Amit Verma', seatNumber: 'B07', roomName: 'Room B', date: '28 Apr 2025', checkIn: '09:00 AM', checkOut: undefined, durationMinutes: 150, status: 'Present' },
+  { id: 'att-3', associationId: 'assoc-1', studentId: 'STU-1026', studentName: 'Sneha Patel', seatNumber: 'C15', roomName: 'Room C', date: '28 Apr 2025', checkIn: '09:15 AM', checkOut: '01:30 PM', durationMinutes: 255, status: 'Present' },
+  { id: 'att-4', associationId: 'assoc-1', studentId: 'STU-1027', studentName: 'Rohit Singh', seatNumber: 'A23', roomName: 'Room A', date: '28 Apr 2025', checkIn: '09:30 AM', checkOut: undefined, durationMinutes: 120, status: 'Present' },
 ];
 
 export const initialExpenses: Expense[] = [
