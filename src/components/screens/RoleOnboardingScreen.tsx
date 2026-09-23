@@ -43,7 +43,7 @@ export const RoleOnboardingScreen: React.FC<RoleOnboardingProps> = ({ onBack, on
   // Quick Demo Pre-fill
   const handlePreFillGenuineRole = async (roleName: string = 'Librarian') => {
     try {
-      const { serverCrypto } = await import('../../../../Library-Management-Server/src/utils/serverCrypto');
+      const { serverCrypto } = await import('../../utils/serverCrypto');
       const genuine = await serverCrypto.issueRoleCredential({
         libraryId: 'ORG-ABC001',
         role: roleName,

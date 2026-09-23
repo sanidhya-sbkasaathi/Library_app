@@ -164,7 +164,7 @@ const CryptographicTamperSuiteCard: React.FC = () => {
   const handleRunTests = async () => {
     setIsRunning(true);
     try {
-      const { serverCrypto } = await import('../../../../Library-Management-Server/src/utils/serverCrypto');
+      const { serverCrypto } = await import('../../utils/serverCrypto');
       const { runAllTamperTests } = await import('../../utils/cryptoTamperTests');
       const res = await runAllTamperTests(
         () => serverCrypto.issueOwnerCredential({

@@ -608,7 +608,7 @@ CREATE POLICY "anon_audit_logs_all" ON public.audit_logs FOR ALL USING (true) WI
   // Quick Demo Pre-fill
   const handlePreFillGenuineOwner = async () => {
     try {
-      const { serverCrypto } = await import('../../../../Library-Management-Server/src/utils/serverCrypto');
+      const { serverCrypto } = await import('../../utils/serverCrypto');
       const genuine = await serverCrypto.issueOwnerCredential({
         libraryId: 'ORG-SAN002',
         ownerName: 'Rishabh kumar',
