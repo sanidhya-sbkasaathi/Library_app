@@ -15,15 +15,20 @@ export default async function handler(req, res) {
   }
 
   try {
-    // Determine the target subpath
-    // When invoked via /api/supabase-mgmt-proxy/v1/projects, req.url may have query or path
-    let targetPath = req.url || '';
-    targetPath = targetPath.replace(/^\/api\/supabase-mgmt-proxy/, '');
-    if (!targetPath.startsWith('/')) {
-      targetPath = '/' + targetPath;
+    // Determine the target subpath cleanly without Vercel rewrite parameter pollution
+    let rawUrl = req.url || '';
+    rawUrl = rawUrl.replace(/^\/api\/supabase-mgmt-proxy/, '');
+    if (!rawUrl.startsWith('/')) {
+      rawUrl = '/' + rawUrl;
     }
 
-    const targetUrl = `https://api.supabase.com${targetPath}`;
+    // Parse URL and remove 'match' parameter injected by Vercel rewrite
+    const parsed = new URL(`http://localhost${rawUrl}`);
+    parsed.searchParams.delete('match');
+    const queryStr = parsed.searchParams.toString();
+    const cleanPath = parsed.pathname + (queryStr ? `?${queryStr}` : '');
+
+    const targetUrl = `https://api.supabase.com${cleanPath}`;
 
     const headers = {
       Accept: 'application/json',
@@ -32,6 +37,9 @@ export default async function handler(req, res) {
 
     if (req.headers['authorization']) {
       headers['Authorization'] = req.headers['authorization'];
+    }
+    if (req.headers['apikey']) {
+      headers['apikey'] = req.headers['apikey'];
     }
     if (req.headers['content-type']) {
       headers['Content-Type'] = req.headers['content-type'];

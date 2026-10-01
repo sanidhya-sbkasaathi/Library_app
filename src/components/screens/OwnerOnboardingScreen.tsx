@@ -27,6 +27,8 @@ import {
   Radio,
   KeyRound,
   Search,
+  ShieldAlert,
+  Link2,
 } from 'lucide-react';
 import { appCrypto, SignedCredentialEnvelope, OwnerCredentialPayload } from '../../utils/appCrypto';
 import { db } from '../../db/localDatabase';
@@ -46,7 +48,9 @@ export const OwnerOnboardingScreen: React.FC<OwnerOnboardingProps> = ({ onBack, 
   // 2: Owner Password (sub-states: 'OFFLINE' | 'CHECKING' | 'ENTER_PASSWORD' | 'CREATE_PASSWORD' | 'FORGOT_VERIFY' | 'RESET_PASSWORD')
   // 3: Supabase & DB
   const [step, setStep] = useState<1 | 2 | 3>(1);
-  const [step2Mode, setStep2Mode] = useState<'OFFLINE' | 'CHECKING' | 'ENTER_PASSWORD' | 'CREATE_PASSWORD' | 'FORGOT_VERIFY' | 'RESET_PASSWORD'>('CHECKING');
+  const [step2Mode, setStep2Mode] = useState<'OFFLINE' | 'CHECKING' | 'ENTER_PASSWORD' | 'CREATE_PASSWORD' | 'FORGOT_VERIFY' | 'RESET_PASSWORD' | 'UNAUTHORIZED'>('CHECKING');
+  const [patError, setPatError] = useState<string>('');
+  const [showDirectCredentials, setShowDirectCredentials] = useState<boolean>(false);
   const [rawCredentialJson, setRawCredentialJson] = useState('');
   const [isVerifying, setIsVerifying] = useState(false);
   const [errorMsg, setErrorMsg] = useState('');
@@ -174,12 +178,29 @@ export const OwnerOnboardingScreen: React.FC<OwnerOnboardingProps> = ({ onBack, 
   const [selectedProjectRef, setSelectedProjectRef] = useState<string>('');
   const [isDiscoveringProjects, setIsDiscoveringProjects] = useState<boolean>(false);
 
+  const handleClearStoredPat = () => {
+    const libId = verifiedEnvelope?.payload?.library_id;
+    ManagementServerClient.clearStoredPatToken(libId);
+    setPatToken('');
+    setPatError('');
+    setDiscoveredProjects([]);
+    setErrorMsg('');
+    setSuccessMsg('Stored PAT key cleared from this device.');
+  };
+
   const discoverProjectsForPat = async (tokenToUse: string, autoSelect = true) => {
     const cleanToken = tokenToUse.trim();
     if (!cleanToken || cleanToken.length < 15) return;
     const libId = verifiedEnvelope?.payload?.library_id;
 
+    // Check if user accidentally pasted an anon key instead of PAT
+    if (!cleanToken.startsWith('sbp_') && (cleanToken.startsWith('sb_publishable_') || cleanToken.startsWith('eyJ'))) {
+      setPatError('The token entered appears to be a Supabase Anon/Publishable Key, not a Personal Access Token (PAT). PAT keys start with "sbp_". You can use this key under "Direct Supabase Project Credentials" below.');
+      return;
+    }
+
     setIsDiscoveringProjects(true);
+    setPatError('');
     setErrorMsg('');
     try {
       if (rememberPat && libId) {
@@ -187,18 +208,23 @@ export const OwnerOnboardingScreen: React.FC<OwnerOnboardingProps> = ({ onBack, 
       }
       const patValidation = await ManagementServerClient.validatePatToken(cleanToken);
       if (!patValidation.ok) {
-        setErrorMsg(patValidation.error || 'Invalid PAT key. Unable to fetch Supabase projects.');
+        const msg = patValidation.error || 'Invalid PAT key. Unable to fetch Supabase projects.';
+        setPatError(msg);
+        setErrorMsg(msg);
         setDiscoveredProjects([]);
         return;
       }
 
       if (!patValidation.projects || patValidation.projects.length === 0) {
-        setErrorMsg('Valid PAT key, but no projects found in your Supabase account. Please create a project at https://supabase.com/dashboard.');
+        const msg = 'Valid PAT key, but no projects found in your Supabase account. Please create a project at https://supabase.com/dashboard.';
+        setPatError(msg);
+        setErrorMsg(msg);
         setDiscoveredProjects([]);
         return;
       }
 
       setDiscoveredProjects(patValidation.projects);
+      setPatError('');
 
       if (autoSelect) {
         let matched = patValidation.projects.find(p =>
@@ -224,7 +250,9 @@ export const OwnerOnboardingScreen: React.FC<OwnerOnboardingProps> = ({ onBack, 
         }
       }
     } catch (err: any) {
-      setErrorMsg(err.message || 'Error discovering projects with PAT.');
+      const msg = err.message || 'Error discovering projects with PAT.';
+      setPatError(msg);
+      setErrorMsg(msg);
     } finally {
       setIsDiscoveringProjects(false);
     }
@@ -256,7 +284,11 @@ export const OwnerOnboardingScreen: React.FC<OwnerOnboardingProps> = ({ onBack, 
       const storedPat = ManagementServerClient.getStoredPatToken(libId);
       if (storedPat && !patToken) {
         setPatToken(storedPat);
-        discoverProjectsForPat(storedPat, true);
+        if (storedPat.startsWith('sbp_')) {
+          discoverProjectsForPat(storedPat, true);
+        } else {
+          setPatError('Stored token does not start with "sbp_". If this is an Anon key, use the Direct Supabase Project Credentials below.');
+        }
       }
 
       // 2. Query Management Server Supabase
@@ -301,6 +333,21 @@ export const OwnerOnboardingScreen: React.FC<OwnerOnboardingProps> = ({ onBack, 
 
       // 2. Query Central Management Server Supabase
       const remoteSecurity = await ManagementServerClient.getOrganizationSecurityState(libId);
+      const cloudStatus = await ManagementServerClient.checkLibrarySupabaseGeneration(libId);
+
+      // Verify that this organization is actually registered and authorized
+      const isAuthorizedOrg = Boolean(
+        remoteSecurity.licenseId ||
+        remoteSecurity.orgName ||
+        cloudStatus.found ||
+        remoteSecurity.initialized
+      );
+
+      if (!isAuthorizedOrg) {
+        setStep2Mode('UNAUTHORIZED');
+        setErrorMsg(`Unauthorized: Organization ID "${libId}" is not registered on the Central Management Server. Onboarding cannot proceed without an authorized license.`);
+        return;
+      }
 
       if (remoteSecurity.initialized && remoteSecurity.passwordHash && remoteSecurity.passwordSalt) {
         // Password ALREADY registered on Central Management Server!
@@ -327,9 +374,9 @@ export const OwnerOnboardingScreen: React.FC<OwnerOnboardingProps> = ({ onBack, 
         setStep2Mode('ENTER_PASSWORD');
         setSuccessMsg(`Central Management Server: Master security password already registered for ${libId}. Enter your password to unlock.`);
       } else {
-        // NO password registered yet on Central Management Server -> Create New Password
+        // Authorized organization, but NO password registered yet on Central Management Server -> Create New Password
         setStep2Mode('CREATE_PASSWORD');
-        setSuccessMsg(`Central Management Server: No existing password found for ${libId}. Please create your new owner password.`);
+        setSuccessMsg(`Central Management Server: Authorized license found for ${libId}. Please create your new owner password.`);
       }
     } catch (err: any) {
       console.warn('Remote security check note:', err);
@@ -1017,48 +1064,46 @@ CREATE POLICY "anon_audit_logs_all" ON public.audit_logs FOR ALL USING (true) WI
       let targetAnonKey = supabaseAnonKey.trim();
 
       // 1. If PAT is provided, validate and fetch projects from Supabase Management API
-      if (activePat) {
+      if (activePat && activePat.startsWith('sbp_')) {
         if (rememberPat) {
           ManagementServerClient.setStoredPatToken(activePat, libId);
         }
         const patValidation = await ManagementServerClient.validatePatToken(activePat);
-        if (!patValidation.ok) {
-          setTableStatus('IDLE');
-          setErrorMsg(patValidation.error || 'Failed to authenticate Personal Access Token with Supabase API. Please check your PAT key.');
-          setIsTestingConnection(false);
-          return;
-        }
+        if (patValidation.ok && patValidation.projects && patValidation.projects.length > 0) {
+          setPatError('');
+          setDiscoveredProjects(patValidation.projects);
 
-        if (!patValidation.projects || patValidation.projects.length === 0) {
-          setTableStatus('IDLE');
-          setErrorMsg('Personal Access Token is valid, but no Supabase projects were found in your account. Please create a project first at https://supabase.com/dashboard.');
-          setIsTestingConnection(false);
-          return;
-        }
+          let matchedProj = patValidation.projects.find(p => 
+            (targetRef && p.id === targetRef) || 
+            (mgmtCloudStatus?.supabaseProjectRef && p.id === mgmtCloudStatus.supabaseProjectRef) ||
+            (p.name && p.name.toLowerCase().includes(libId.toLowerCase()))
+          );
+          if (!matchedProj && patValidation.projects.length > 0) {
+            matchedProj = patValidation.projects[0];
+          }
 
-        setDiscoveredProjects(patValidation.projects);
+          if (matchedProj) {
+            targetRef = matchedProj.id;
+            setSelectedProjectRef(targetRef);
+            targetUrl = `https://${targetRef}.supabase.co`;
+            setSupabaseUrl(targetUrl);
 
-        // Find the matching project (or preferred by libId / ref / mgmtStatus)
-        let matchedProj = patValidation.projects.find(p => 
-          (targetRef && p.id === targetRef) || 
-          (mgmtCloudStatus?.supabaseProjectRef && p.id === mgmtCloudStatus.supabaseProjectRef) ||
-          (p.name && p.name.toLowerCase().includes(libId.toLowerCase()))
-        );
-        if (!matchedProj && patValidation.projects.length > 0) {
-          matchedProj = patValidation.projects[0];
-        }
-
-        if (matchedProj) {
-          targetRef = matchedProj.id;
-          setSelectedProjectRef(targetRef);
-          targetUrl = `https://${targetRef}.supabase.co`;
-          setSupabaseUrl(targetUrl);
-
-          // Fetch actual project API keys directly with PAT
-          const keyResult = await SupabaseManagementApi.getProjectApiKeys(activePat, targetRef);
-          if (keyResult.ok && keyResult.anonKey) {
-            targetAnonKey = keyResult.anonKey;
-            setSupabaseAnonKey(targetAnonKey);
+            // Fetch actual project API keys directly with PAT
+            const keyResult = await SupabaseManagementApi.getProjectApiKeys(activePat, targetRef);
+            if (keyResult.ok && keyResult.anonKey) {
+              targetAnonKey = keyResult.anonKey;
+              setSupabaseAnonKey(targetAnonKey);
+            }
+          }
+        } else {
+          const msg = patValidation.error || 'Failed to authenticate Personal Access Token with Supabase API.';
+          setPatError(msg);
+          // Only block if we DO NOT have direct targetUrl and targetAnonKey
+          if (!targetUrl || !targetAnonKey) {
+            setTableStatus('IDLE');
+            setErrorMsg(msg);
+            setIsTestingConnection(false);
+            return;
           }
         }
       }
@@ -1507,6 +1552,47 @@ CREATE POLICY "anon_audit_logs_all" ON public.audit_logs FOR ALL USING (true) WI
                 New device registration for Library: <b>{verifiedEnvelope.payload.library_id}</b> • Owner: <b>{verifiedEnvelope.payload.owner_name}</b>
               </p>
             </div>
+
+            {/* SUB-VIEW 0: UNAUTHORIZED - Organization Not Registered on Central Server */}
+            {step2Mode === 'UNAUTHORIZED' && (
+              <div className="p-6 rounded-2xl bg-rose-50 dark:bg-rose-950/40 border-2 border-rose-300 dark:border-rose-800 text-center space-y-4 animate-in zoom-in-95">
+                <div className="w-16 h-16 mx-auto rounded-full bg-rose-500/20 text-rose-500 flex items-center justify-center shadow-lg shadow-rose-500/10">
+                  <ShieldAlert className="w-8 h-8" />
+                </div>
+
+                <div className="space-y-1.5 max-w-md mx-auto">
+                  <h2 className="text-base font-extrabold text-rose-700 dark:text-rose-400">
+                    Unauthorized Organization Access
+                  </h2>
+                  <p className="text-slate-600 dark:text-slate-300 text-xs leading-relaxed">
+                    Library ID <code className="font-mono bg-rose-500/20 px-1 rounded font-bold text-rose-700 dark:text-rose-300">{verifiedEnvelope.payload.library_id}</code> is not registered on the <b>Central Management Server</b> or does not have an active license.
+                  </p>
+                  <p className="text-[11px] text-slate-500 dark:text-slate-400">
+                    Only authorized organizations with an active license issued by the central management portal may onboard and configure a library terminal.
+                  </p>
+                </div>
+
+                <div className="pt-2 flex flex-col sm:flex-row items-center justify-center gap-3">
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setStep(1);
+                      setErrorMsg('');
+                    }}
+                    className="w-full sm:w-auto px-5 py-2.5 bg-slate-800 hover:bg-slate-700 text-white font-bold text-xs rounded-xl cursor-pointer transition"
+                  >
+                    Back to Credential Verification
+                  </button>
+                  <button
+                    type="button"
+                    onClick={onBack}
+                    className="w-full sm:w-auto px-4 py-2.5 bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300 font-semibold text-xs rounded-xl cursor-pointer"
+                  >
+                    Exit Onboarding
+                  </button>
+                </div>
+              </div>
+            )}
 
             {/* SUB-VIEW 1: OFFLINE GATE - Must Connect Internet First */}
             {step2Mode === 'OFFLINE' && (
@@ -2061,17 +2147,27 @@ CREATE POLICY "anon_audit_logs_all" ON public.audit_logs FOR ALL USING (true) WI
                 <div>
                   <label className="block text-slate-900 dark:text-white font-bold text-xs flex items-center gap-1.5">
                     <Key className="w-3.5 h-3.5 text-amber-500" />
-                    <span>Supabase Personal Access Token (PAT Key) *</span>
+                    <span>Supabase Personal Access Token (PAT Key)</span>
                   </label>
                   <p className="text-slate-500 dark:text-slate-400 text-[10px] mt-0.5">
-                    Stored securely on device. Never exposes service_role keys.
+                    Requires an account token from Supabase (starts with <code>sbp_...</code>).
                   </p>
                 </div>
 
                 {storedPatPresent && (
-                  <span className="px-2 py-0.5 rounded-md bg-emerald-50 dark:bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 text-[10px] font-bold border border-emerald-200 dark:border-emerald-500/20">
-                    ✓ Stored Locally
-                  </span>
+                  <div className="flex items-center gap-2">
+                    <span className="px-2 py-0.5 rounded-md bg-emerald-50 dark:bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 text-[10px] font-bold border border-emerald-200 dark:border-emerald-500/20">
+                      ✓ Stored Locally
+                    </span>
+                    <button
+                      type="button"
+                      onClick={handleClearStoredPat}
+                      className="text-[10px] text-rose-500 hover:text-rose-400 hover:underline font-bold cursor-pointer"
+                      title="Clear stored PAT token"
+                    >
+                      Clear
+                    </button>
+                  </div>
                 )}
               </div>
 
@@ -2083,10 +2179,11 @@ CREATE POLICY "anon_audit_logs_all" ON public.audit_logs FOR ALL USING (true) WI
                     onChange={e => {
                       const val = e.target.value;
                       setPatToken(val);
+                      setPatError('');
                       setTestResult(null);
                       setTableStatus('IDLE');
                       setPullStats(null);
-                      if (val.trim().startsWith('sbp_') || val.trim().length >= 25) {
+                      if (val.trim().startsWith('sbp_') && val.trim().length >= 35) {
                         discoverProjectsForPat(val, true);
                       }
                     }}
@@ -2124,6 +2221,58 @@ CREATE POLICY "anon_audit_logs_all" ON public.audit_logs FOR ALL USING (true) WI
                   )}
                 </button>
               </div>
+
+              {/* Inline PAT Error Box with Clear action */}
+              {patError && (
+                <div className="p-3 rounded-xl bg-rose-50 dark:bg-rose-950/40 border border-rose-200 dark:border-rose-900/60 text-rose-700 dark:text-rose-300 text-xs space-y-1.5 animate-in fade-in">
+                  <div className="flex items-center justify-between font-bold">
+                    <span className="flex items-center gap-1.5">
+                      <AlertCircle className="w-4 h-4 text-rose-500 shrink-0" />
+                      <span>
+                        {patError.includes('401') || patError.toLowerCase().includes('invalid personal access token')
+                          ? 'PAT 401 Unauthorized (Invalid or Expired Token)'
+                          : 'PAT Validation Notice'}
+                      </span>
+                    </span>
+                    <button
+                      type="button"
+                      onClick={() => setPatError('')}
+                      className="text-slate-400 hover:text-slate-200 text-[10px] cursor-pointer"
+                    >
+                      ✕
+                    </button>
+                  </div>
+                  <p className="text-[11px] leading-relaxed">
+                    {patError}
+                  </p>
+                  <div className="pt-1 flex flex-wrap items-center gap-3 text-[10px]">
+                    <a
+                      href="https://supabase.com/dashboard/account/tokens"
+                      target="_blank"
+                      rel="noreferrer"
+                      className="text-cyan-600 dark:text-cyan-400 underline font-bold flex items-center gap-1"
+                    >
+                      <span>Generate New Token at supabase.com ↗</span>
+                    </a>
+                    {storedPatPresent && (
+                      <button
+                        type="button"
+                        onClick={handleClearStoredPat}
+                        className="text-rose-600 dark:text-rose-400 underline font-bold cursor-pointer"
+                      >
+                        Clear Stored Token
+                      </button>
+                    )}
+                    <button
+                      type="button"
+                      onClick={() => setShowDirectCredentials(true)}
+                      className="text-blue-600 dark:text-blue-400 underline font-bold cursor-pointer"
+                    >
+                      Connect Directly with Project URL & Anon Key ↓
+                    </button>
+                  </div>
+                </div>
+              )}
 
               {/* Project Dropdown if PAT discovered projects */}
               {Array.isArray(discoveredProjects) && discoveredProjects.length > 0 && (
@@ -2175,17 +2324,77 @@ CREATE POLICY "anon_audit_logs_all" ON public.audit_logs FOR ALL USING (true) WI
                   <span>Remember PAT Key on this device</span>
                 </label>
 
-                <a
-                  href="https://supabase.com/dashboard/account/tokens"
-                  target="_blank"
-                  rel="noreferrer"
-                  className="text-cyan-600 dark:text-cyan-400 hover:underline flex items-center gap-1 font-semibold"
-                >
-                  <span>Generate PAT in Supabase Dashboard</span>
-                  <ExternalLink className="w-3 h-3" />
-                </a>
+                <div className="flex items-center gap-3">
+                  <button
+                    type="button"
+                    onClick={() => setShowDirectCredentials(!showDirectCredentials)}
+                    className="text-blue-600 dark:text-blue-400 hover:underline font-semibold cursor-pointer"
+                  >
+                    {showDirectCredentials ? 'Hide Direct Credentials' : 'Direct URL & Anon Key (No PAT) ↓'}
+                  </button>
+                  <a
+                    href="https://supabase.com/dashboard/account/tokens"
+                    target="_blank"
+                    rel="noreferrer"
+                    className="text-cyan-600 dark:text-cyan-400 hover:underline flex items-center gap-1 font-semibold"
+                  >
+                    <span>Generate PAT</span>
+                    <ExternalLink className="w-3 h-3" />
+                  </a>
+                </div>
               </div>
             </div>
+
+            {/* Direct Supabase Project URL & Anon Key Section (Manual / Alternative) */}
+            {(showDirectCredentials || (!patToken && (supabaseUrl || supabaseAnonKey))) && (
+              <div className="p-4 rounded-2xl bg-slate-50 dark:bg-slate-900/60 border border-slate-200 dark:border-slate-800 space-y-3 animate-in fade-in">
+                <div className="flex items-center justify-between">
+                  <label className="block text-slate-900 dark:text-white font-bold text-xs flex items-center gap-1.5">
+                    <Link2 className="w-3.5 h-3.5 text-blue-500" />
+                    <span>Direct Supabase Project Credentials (No PAT Required)</span>
+                  </label>
+                  <span className="text-[10px] text-slate-400">Direct Database Connection</span>
+                </div>
+
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                  <div className="space-y-1">
+                    <label className="block text-[11px] font-semibold text-slate-700 dark:text-slate-300">
+                      Supabase Project URL *
+                    </label>
+                    <input
+                      type="text"
+                      value={supabaseUrl}
+                      onChange={e => {
+                        const val = e.target.value.trim();
+                        setSupabaseUrl(val);
+                        setSelectedProjectRef(SupabaseClient.extractProjectRef(val));
+                        setTestResult(null);
+                        setTableStatus('IDLE');
+                      }}
+                      placeholder="https://xxxxxxxxxxxx.supabase.co"
+                      className="w-full px-3 py-2 rounded-xl bg-white dark:bg-slate-950 border border-slate-300 dark:border-slate-800 text-slate-900 dark:text-white text-xs font-mono focus:outline-none focus:border-cyan-500"
+                    />
+                  </div>
+
+                  <div className="space-y-1">
+                    <label className="block text-[11px] font-semibold text-slate-700 dark:text-slate-300">
+                      Supabase Anon / Publishable Key *
+                    </label>
+                    <input
+                      type="password"
+                      value={supabaseAnonKey}
+                      onChange={e => {
+                        setSupabaseAnonKey(e.target.value.trim());
+                        setTestResult(null);
+                        setTableStatus('IDLE');
+                      }}
+                      placeholder="sb_publishable_... or eyJhbGci..."
+                      className="w-full px-3 py-2 rounded-xl bg-white dark:bg-slate-950 border border-slate-300 dark:border-slate-800 text-slate-900 dark:text-white text-xs font-mono focus:outline-none focus:border-cyan-500"
+                    />
+                  </div>
+                </div>
+              </div>
+            )}
 
             {/* Test Connection Action & Live Breakdown */}
             <div className="pt-1 space-y-3">
