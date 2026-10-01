@@ -103,8 +103,6 @@ export const SupabaseProvisioningModal: React.FC<SupabaseProvisioningModalProps>
     setManifest(SupabaseManagementApi.getManifest());
   }, []);
 
-  if (!isOpen) return null;
-
   // 1. Initiate Supabase OAuth Flow
   const handleStartOAuth = async () => {
     setErrorMessage('Please use the Personal Access Token (PAT) tab for instant, direct 1-click connection without registering an OAuth app.');
@@ -277,6 +275,8 @@ export const SupabaseProvisioningModal: React.FC<SupabaseProvisioningModalProps>
     });
     onClose();
   };
+
+  if (!isOpen) return null;
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-950/70 backdrop-blur-md animate-in fade-in duration-200">

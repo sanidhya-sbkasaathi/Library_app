@@ -1,7 +1,7 @@
 {
   "name": "sbkasaathi-library",
   "private": true,
-  "version": "0.0.0",
+  "version": "1.0.0",
   "type": "module",
   "main": "main.js",
   "scripts": {
@@ -13,7 +13,7 @@
     "electron:build": "npm run build && electron-builder"
   },
   "description": "SbKasaathi Enterprise Library Management System",
-  "author": "SbKasaathi",
+  "author": "SbKasaathi Library Technologies",
   "build": {
     "appId": "com.sbkasaathi.library",
     "productName": "SbKasaathi Library",
@@ -21,13 +21,18 @@
       "output": "release"
     },
     "win": {
-      "target": "nsis"
+      "target": ["nsis"],
+      "publisherName": "SbKasaathi Library Technologies",
+      "requestedExecutionLevel": "asInvoker"
     },
     "nsis": {
-      "oneClick": true,
+      "oneClick": false,
       "perMachine": false,
-      "allowToChangeInstallationDirectory": false,
+      "allowToChangeInstallationDirectory": true,
       "runAfterFinish": true,
+      "createDesktopShortcut": true,
+      "createStartMenuShortcut": true,
+      "shortcutName": "SbKasaathi Library",
       "artifactName": "SbKasaathi-Library-Setup.exe"
     },
     "files": [

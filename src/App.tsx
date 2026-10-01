@@ -120,14 +120,51 @@ const OAuthCallbackHandler: React.FC = () => {
   );
 };
 
+// 30-Day Extended Session Validity (720 Hours)
+const SESSION_DURATION_MS = 30 * 24 * 60 * 60 * 1000;
+
+function checkIsSessionUnlocked(): boolean {
+  if (typeof window === 'undefined') return false;
+  try {
+    const isUnlocked = localStorage.getItem('lib_mgmt_session_unlocked') === 'true' || sessionStorage.getItem('lib_mgmt_session_unlocked') === 'true';
+    const expiryStr = localStorage.getItem('lib_mgmt_session_expires_at');
+    if (expiryStr) {
+      const expiresAt = parseInt(expiryStr, 10);
+      if (Date.now() < expiresAt) {
+        return true;
+      }
+      // Expired after 30 days
+      localStorage.removeItem('lib_mgmt_session_unlocked');
+      localStorage.removeItem('lib_mgmt_session_expires_at');
+      sessionStorage.removeItem('lib_mgmt_session_unlocked');
+      return false;
+    }
+    return isUnlocked;
+  } catch {
+    return false;
+  }
+}
+
+function persistSessionUnlock(): void {
+  try {
+    const expiresAt = (Date.now() + SESSION_DURATION_MS).toString();
+    localStorage.setItem('lib_mgmt_session_unlocked', 'true');
+    localStorage.setItem('lib_mgmt_session_expires_at', expiresAt);
+    sessionStorage.setItem('lib_mgmt_session_unlocked', 'true');
+  } catch {}
+}
+
+function clearPersistedSession(): void {
+  try {
+    localStorage.removeItem('lib_mgmt_session_unlocked');
+    localStorage.removeItem('lib_mgmt_session_expires_at');
+    sessionStorage.removeItem('lib_mgmt_session_unlocked');
+  } catch {}
+}
+
 export function App() {
   const [, setTick] = useState(0);
-  const [sessionUnlocked, setSessionUnlocked] = useState<boolean>(() => {
-    if (typeof window !== 'undefined') {
-      return sessionStorage.getItem('lib_mgmt_session_unlocked') === 'true';
-    }
-    return false;
-  });
+  const [sessionUnlocked, setSessionUnlocked] = useState<boolean>(() => checkIsSessionUnlocked());
 
   const [currentScreen, setCurrentScreen] = useState<string>(() => {
     if (typeof window !== 'undefined') {
@@ -184,7 +221,7 @@ export function App() {
           onBack={() => setCurrentScreen('onboarding-landing')}
           onSuccess={() => {
             setSessionUnlocked(true);
-            try { sessionStorage.setItem('lib_mgmt_session_unlocked', 'true'); } catch (e) {}
+            persistSessionUnlock();
             setCurrentScreen('dashboard');
           }}
         />
@@ -196,7 +233,7 @@ export function App() {
           onBack={() => setCurrentScreen('onboarding-landing')}
           onSuccess={() => {
             setSessionUnlocked(true);
-            try { sessionStorage.setItem('lib_mgmt_session_unlocked', 'true'); } catch (e) {}
+            persistSessionUnlock();
             setCurrentScreen('dashboard');
           }}
         />
@@ -210,18 +247,18 @@ export function App() {
     );
   }
 
-  // Session Password Protection Gate: Ask password on subsequent desktop launches
+  // Session Password Protection Gate: Ask password on subsequent desktop launches (persists for 30 days)
   if (!sessionUnlocked) {
     return (
       <LoginUnlockScreen
         onUnlock={() => {
           setSessionUnlocked(true);
-          try { sessionStorage.setItem('lib_mgmt_session_unlocked', 'true'); } catch (e) {}
+          persistSessionUnlock();
           setCurrentScreen('dashboard');
         }}
         onUnbind={() => {
           setSessionUnlocked(false);
-          try { sessionStorage.removeItem('lib_mgmt_session_unlocked'); } catch (e) {}
+          clearPersistedSession();
           setCurrentScreen('onboarding-landing');
         }}
       />
