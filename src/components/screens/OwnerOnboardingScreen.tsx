@@ -413,19 +413,47 @@ export const OwnerOnboardingScreen: React.FC<OwnerOnboardingProps> = ({ onBack, 
     await checkRemoteSecurity(verifiedEnvelope.payload.library_id);
   };
 
-  const handleProvisionComplete = (result: ProvisionResult) => {
+  const handleProvisionComplete = async (result: ProvisionResult) => {
     setSupabaseUrl(result.projectUrl);
     setSupabaseAnonKey(result.anonKey);
     setSelectedProjectRef(result.projectRef);
-    setTestResult({
-      ok: true,
-      projectRef: result.projectRef,
-      latencyMs: 24,
-    });
-    setTableStatus('READY');
-    setVerifiedTableCount(14);
-    setErrorMsg('');
-    setSuccessMsg(`Supabase Cloud Database successfully migrated with 14 active tables! Ready to launch.`);
+
+    // Verify whether all 14 tables actually exist on the target project
+    try {
+      const tableCheck = await SupabaseClient.checkTablesExist({
+        url: result.projectUrl,
+        anonKey: result.anonKey,
+      });
+
+      if (tableCheck.ready) {
+        setTestResult({
+          ok: true,
+          projectRef: result.projectRef,
+          latencyMs: 24,
+        });
+        setTableStatus('READY');
+        setVerifiedTableCount(tableCheck.totalExisting || 14);
+        setErrorMsg('');
+        setSuccessMsg('Supabase Cloud Database successfully verified with 14 active tables! Ready to launch.');
+      } else {
+        setTestResult({
+          ok: true,
+          projectRef: result.projectRef,
+          latencyMs: 24,
+        });
+        setTableStatus('NOT_CREATED');
+        setVerifiedTableCount(tableCheck.totalExisting || 0);
+        setErrorMsg(`Supabase connected, but ${14 - (tableCheck.totalExisting || 0)} required tables are missing. Please click "Copy 14-Table SQL" and run it in your Supabase SQL Editor.`);
+      }
+    } catch {
+      setTestResult({
+        ok: true,
+        projectRef: result.projectRef,
+        latencyMs: 24,
+      });
+      setTableStatus('NOT_CREATED');
+      setErrorMsg('Could not verify database schema in Supabase. Please copy and run the 14-table SQL schema in your Supabase SQL Editor.');
+    }
 
     if (verifiedEnvelope?.payload?.library_id) {
       const libId = verifiedEnvelope.payload.library_id;
@@ -1298,6 +1326,22 @@ CREATE POLICY "anon_audit_logs_all" ON public.audit_logs FOR ALL USING (true) WI
 
       const activeUrl = supabaseUrl.trim() || `https://${testResult.projectRef}.supabase.co`;
       const activeAnonKey = supabaseAnonKey.trim() || 'anon';
+
+      // Pre-flight check: verify that database tables actually exist in Supabase before proceeding
+      if (activeUrl && activeAnonKey && activeAnonKey !== 'anon') {
+        try {
+          const verifyTables = await SupabaseClient.checkTablesExist({ url: activeUrl, anonKey: activeAnonKey });
+          if (!verifyTables.ready) {
+            setTableStatus('NOT_CREATED');
+            setVerifiedTableCount(verifyTables.totalExisting || 0);
+            setErrorMsg(`Cannot launch: Supabase project is missing ${14 - (verifyTables.totalExisting || 0)} required database tables. Please copy and run the 14-table SQL schema in your Supabase SQL Editor.`);
+            setIsDeploying(false);
+            return;
+          }
+        } catch {
+          // If network check fails, proceed cautiously
+        }
+      }
 
       // Persist owner auth record locally for subsequent instant device unlock
       const authRecord = {

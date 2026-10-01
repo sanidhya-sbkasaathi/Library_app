@@ -40,6 +40,8 @@ export class ErrorBoundary extends Component<Props, State> {
   private handleClearAndRestart = () => {
     try {
       sessionStorage.clear();
+      localStorage.removeItem('lib_mgmt_active_screen');
+      localStorage.removeItem('lib_mgmt_selected_student');
     } catch {}
     this.setState({ hasError: false, error: null, errorInfo: null });
     window.location.href = window.location.pathname;

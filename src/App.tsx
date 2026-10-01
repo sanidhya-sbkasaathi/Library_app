@@ -213,32 +213,56 @@ export function App() {
     return <OAuthCallbackHandler />;
   }
 
-  // Strict Signature Verification Gate: Never allow dashboard access if unbound
-  if (db.bindingState === 'UNBOUND' || !db.boundCredentialEnvelope) {
-    if (currentScreen === 'onboarding-owner') {
-      return (
-        <OwnerOnboardingScreen
-          onBack={() => setCurrentScreen('onboarding-landing')}
-          onSuccess={() => {
-            setSessionUnlocked(true);
-            persistSessionUnlock();
-            setCurrentScreen('dashboard');
-          }}
-        />
-      );
-    }
-    if (currentScreen === 'onboarding-role') {
-      return (
-        <RoleOnboardingScreen
-          onBack={() => setCurrentScreen('onboarding-landing')}
-          onSuccess={() => {
-            setSessionUnlocked(true);
-            persistSessionUnlock();
-            setCurrentScreen('dashboard');
-          }}
-        />
-      );
-    }
+  // 1. Explicit Screen Overrides for Onboarding Flows:
+  // Must ALWAYS render the active onboarding screen while currentScreen is active to prevent
+  // premature unmounting race conditions during asynchronous device binding.
+  if (currentScreen === 'onboarding-owner') {
+    return (
+      <OwnerOnboardingScreen
+        onBack={() => {
+          setCurrentScreen('onboarding-landing');
+          try {
+            sessionStorage.setItem('lib_mgmt_active_screen', 'onboarding-landing');
+            localStorage.setItem('lib_mgmt_active_screen', 'onboarding-landing');
+          } catch {}
+        }}
+        onSuccess={() => {
+          setSessionUnlocked(true);
+          persistSessionUnlock();
+          setCurrentScreen('dashboard');
+          try {
+            sessionStorage.setItem('lib_mgmt_active_screen', 'dashboard');
+            localStorage.setItem('lib_mgmt_active_screen', 'dashboard');
+          } catch {}
+        }}
+      />
+    );
+  }
+
+  if (currentScreen === 'onboarding-role') {
+    return (
+      <RoleOnboardingScreen
+        onBack={() => {
+          setCurrentScreen('onboarding-landing');
+          try {
+            sessionStorage.setItem('lib_mgmt_active_screen', 'onboarding-landing');
+            localStorage.setItem('lib_mgmt_active_screen', 'onboarding-landing');
+          } catch {}
+        }}
+        onSuccess={() => {
+          setSessionUnlocked(true);
+          persistSessionUnlock();
+          setCurrentScreen('dashboard');
+          try {
+            sessionStorage.setItem('lib_mgmt_active_screen', 'dashboard');
+            localStorage.setItem('lib_mgmt_active_screen', 'dashboard');
+          } catch {}
+        }}
+      />
+    );
+  }
+
+  if (currentScreen === 'onboarding-landing') {
     return (
       <OnboardingLandingScreen
         onSelectOwner={() => setCurrentScreen('onboarding-owner')}
@@ -247,7 +271,17 @@ export function App() {
     );
   }
 
-  // Session Password Protection Gate: Ask password on subsequent desktop launches (persists for 30 days)
+  // 2. Strict Signature Verification Gate: Never allow dashboard access if unbound
+  if (db.bindingState === 'UNBOUND' || !db.boundCredentialEnvelope) {
+    return (
+      <OnboardingLandingScreen
+        onSelectOwner={() => setCurrentScreen('onboarding-owner')}
+        onSelectRole={() => setCurrentScreen('onboarding-role')}
+      />
+    );
+  }
+
+  // 3. Session Password Protection Gate: Ask password on subsequent desktop launches (persists for 30 days)
   if (!sessionUnlocked) {
     return (
       <LoginUnlockScreen
@@ -255,11 +289,19 @@ export function App() {
           setSessionUnlocked(true);
           persistSessionUnlock();
           setCurrentScreen('dashboard');
+          try {
+            sessionStorage.setItem('lib_mgmt_active_screen', 'dashboard');
+            localStorage.setItem('lib_mgmt_active_screen', 'dashboard');
+          } catch {}
         }}
         onUnbind={() => {
           setSessionUnlocked(false);
           clearPersistedSession();
           setCurrentScreen('onboarding-landing');
+          try {
+            sessionStorage.setItem('lib_mgmt_active_screen', 'onboarding-landing');
+            localStorage.setItem('lib_mgmt_active_screen', 'onboarding-landing');
+          } catch {}
         }}
       />
     );
