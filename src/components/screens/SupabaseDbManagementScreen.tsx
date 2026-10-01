@@ -403,6 +403,49 @@ export const SupabaseDbManagementScreen: React.FC<SupabaseDbManagementScreenProp
     }
   };
 
+  const [isMigratingLocalToCloud, setIsMigratingLocalToCloud] = useState(false);
+
+  const handlePushAllDataToCloud = async () => {
+    const targetUrl = (supabaseUrl || db.supabaseConfig?.url || '').trim();
+    const targetKey = (supabaseAnonKey || db.supabaseConfig?.anonKey || '').trim();
+
+    if (!targetUrl || !targetKey) {
+      alert('Please connect to Supabase first before uploading local records.');
+      return;
+    }
+
+    setIsMigratingLocalToCloud(true);
+    setSyncFeedback('Uploading all local database records to Supabase Cloud...');
+
+    try {
+      const assoc = db.getCurrentAssociation();
+      const res = await SupabaseClient.migrateLibraryToCloud(
+        { url: targetUrl, anonKey: targetKey },
+        {
+          association: assoc,
+          rooms: db.rooms,
+          seats: db.seats,
+          students: db.students,
+          admissions: db.admissions,
+          attendance: db.attendance,
+          payments: db.payments,
+          membershipPlans: db.membershipPlans,
+        }
+      );
+
+      if (res && res.success) {
+        setSyncFeedback(`✓ Successfully uploaded ${res.syncedItemsCount} local records to Supabase Cloud!`);
+      } else {
+        setSyncFeedback(`⚠️ Cloud upload notice: ${res?.error || 'Partial upload'}`);
+      }
+    } catch (e: any) {
+      setSyncFeedback(`Upload failed: ${e.message}`);
+    } finally {
+      setIsMigratingLocalToCloud(false);
+      setTimeout(() => setSyncFeedback(null), 6000);
+    }
+  };
+
   const isConnected = Boolean(db.supabaseConfig?.url && (testResult?.ok ?? true) && db.supabaseConfig.url.startsWith('http'));
   const isMatchWithServer = Boolean(
     mgmtCloudStatus?.supabaseProjectRef &&
@@ -948,6 +991,27 @@ export const SupabaseDbManagementScreen: React.FC<SupabaseDbManagementScreenProp
           >
             <ArrowDownCircle className={`w-4 h-4 ${isPulling ? 'animate-bounce' : ''}`} />
             <span>{isPulling ? 'Pulling Cloud Data...' : 'Pull Cloud Changes'}</span>
+          </button>
+        </div>
+
+        {/* Primary Push Local Data Card */}
+        <div className="p-4 sm:p-5 rounded-2xl bg-gradient-to-br from-emerald-50/70 via-teal-50/40 to-slate-50 dark:from-emerald-950/20 dark:via-slate-900 dark:to-slate-900 border border-emerald-200 dark:border-emerald-800/60 flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+          <div className="space-y-1">
+            <h3 className="font-extrabold text-sm text-slate-900 dark:text-white flex items-center gap-2">
+              <ArrowUpCircle className="w-4 h-4 text-emerald-600 dark:text-emerald-400" />
+              Upload All Local Data to Supabase Cloud
+            </h3>
+            <p className="text-xs text-slate-600 dark:text-slate-300 leading-relaxed max-w-2xl">
+              Uploads and synchronizes all your local records ({db.students.length} students, {db.seats.length} seats, {db.payments.length} payments, admissions, and plans) directly to Supabase tables.
+            </p>
+          </div>
+          <button
+            onClick={handlePushAllDataToCloud}
+            disabled={isMigratingLocalToCloud || !isConnected}
+            className="w-full sm:w-auto px-5 py-2.5 bg-gradient-to-r from-emerald-600 to-teal-600 hover:from-emerald-500 hover:to-teal-500 text-white font-bold rounded-xl text-xs shadow-md shadow-emerald-500/20 transition flex items-center justify-center gap-2 shrink-0 cursor-pointer disabled:opacity-50"
+          >
+            <ArrowUpCircle className={`w-4 h-4 ${isMigratingLocalToCloud ? 'animate-spin' : ''}`} />
+            <span>{isMigratingLocalToCloud ? 'Uploading Local Data...' : 'Upload Local Data to Cloud'}</span>
           </button>
         </div>
 

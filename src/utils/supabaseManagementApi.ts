@@ -55,18 +55,16 @@ export class SupabaseManagementApi {
   }
 
   /**
-   * Returns base URL for Management API: in local dev, routes via dev proxy to eliminate CORS errors
+   * Returns base URL for Management API: in dev, hosted web, and Electron, routes via proxy to eliminate CORS errors
    */
   public static getBaseApiUrl(): string {
     if (typeof window !== 'undefined') {
       if (window.location.protocol === 'app:') {
         return 'app://app/api/supabase-mgmt-proxy';
       }
-      const isElectron = /Electron/i.test(navigator.userAgent) || window.location.protocol === 'file:';
-      const isLocalHost = window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1';
-      if (isLocalHost || isElectron) {
-        const origin = window.location.origin && window.location.origin !== 'null' ? window.location.origin : 'http://localhost:5173';
-        return `${origin}/api/supabase-mgmt-proxy`;
+      // Route via proxy on all browser origins (local dev and hosted domains e.g. Vercel)
+      if (window.location.origin && window.location.origin !== 'null') {
+        return `${window.location.origin}/api/supabase-mgmt-proxy`;
       }
     }
     return 'https://api.supabase.com';
@@ -100,6 +98,14 @@ export class SupabaseManagementApi {
           Accept: 'application/json',
         },
       });
+
+      const contentType = res.headers.get('content-type') || '';
+      if (contentType.includes('text/html')) {
+        return {
+          ok: false,
+          error: 'Management proxy endpoint returned HTML. If hosted on a static domain without serverless functions, you can connect directly using your Supabase Project URL and Anon Key.',
+        };
+      }
 
       if (!res.ok) {
         if (res.status === 401 || res.status === 403) {
@@ -156,6 +162,11 @@ export class SupabaseManagementApi {
         },
       });
 
+      const contentType = res.headers.get('content-type') || '';
+      if (contentType.includes('text/html')) {
+        return { ok: false, error: 'Management API proxy returned HTML.' };
+      }
+
       if (!res.ok) {
         return {
           ok: false,
@@ -196,6 +207,11 @@ export class SupabaseManagementApi {
       },
       body: JSON.stringify({ query: sql }),
     });
+
+    const contentType = res.headers.get('content-type') || '';
+    if (contentType.includes('text/html')) {
+      throw new Error('Database proxy returned HTML instead of JSON. Ensure the serverless API proxy is running.');
+    }
 
     if (!res.ok) {
       const errText = await res.text();

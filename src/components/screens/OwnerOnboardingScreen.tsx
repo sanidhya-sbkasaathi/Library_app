@@ -1299,10 +1299,11 @@ CREATE POLICY "anon_audit_logs_all" ON public.audit_logs FOR ALL USING (true) WI
         }
       }
 
-      // 3. Only push initial default data to remote tables if cloud was empty AND user is in PUSH_NEW mode
-      if (db.students.length === 0 && configMode === 'PUSH_NEW') {
+      // 3. Push complete local library dataset into Supabase Cloud
+      if (authRecord.supabaseConfig.url && authRecord.supabaseConfig.anonKey) {
         try {
-          await SupabaseClient.migrateLibraryToCloud(authRecord.supabaseConfig, {
+          setSuccessMsg('Uploading local library records to Supabase Cloud...');
+          const pushResult = await SupabaseClient.migrateLibraryToCloud(authRecord.supabaseConfig, {
             association: verifiedEnvelope.payload,
             rooms: db.rooms,
             seats: db.seats,
@@ -1312,6 +1313,9 @@ CREATE POLICY "anon_audit_logs_all" ON public.audit_logs FOR ALL USING (true) WI
             payments: db.payments,
             membershipPlans: db.membershipPlans,
           });
+          if (pushResult && pushResult.success) {
+            console.log(`[Onboarding] Successfully migrated ${pushResult.syncedItemsCount} local records to Supabase Cloud.`);
+          }
         } catch (pushErr) {
           console.warn('Initial cloud dataset push note:', pushErr);
         }
@@ -2122,7 +2126,7 @@ CREATE POLICY "anon_audit_logs_all" ON public.audit_logs FOR ALL USING (true) WI
               </div>
 
               {/* Project Dropdown if PAT discovered projects */}
-              {discoveredProjects.length > 0 && (
+              {Array.isArray(discoveredProjects) && discoveredProjects.length > 0 && (
                 <div className="space-y-1.5 pt-1 animate-in fade-in">
                   <div className="flex items-center justify-between">
                     <label className="block text-[11px] font-bold text-slate-700 dark:text-slate-300 flex items-center gap-1.5">
